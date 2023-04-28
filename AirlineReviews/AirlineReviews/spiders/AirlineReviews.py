@@ -1,6 +1,7 @@
 # Import library
 import scrapy
 import re
+import datetime
 import csv
 import uuid
 from AirlineReviews.items import AirlineReviewsItem
@@ -19,7 +20,7 @@ class AirlineReviewCrawler(scrapy.Spider):
                 reviews = int(row['Reviews'])
                 airline = row['AirlineName']
 
-                url = f'https://www.airlinequality.com/airline-reviews/{slug}/page/1/?sortby=post_date%3ADesc&pagesize={reviews}'
+                url = f'https://www.airlinequality.com/airline-reviews/{slug}/page/1/?sortby=post_date%3ADesc&pagesize=100'
                 yield scrapy.Request(url=url, callback=self.parse, meta={'airline': airline})
 
     # Parses the website
@@ -48,8 +49,8 @@ class AirlineReviewCrawler(scrapy.Spider):
 
             # OriginCountry
             try:
-                origin_country_text = response.xpath('//article[@itemprop="review"]/div/h3/text()').extract()[1]
-                OriginCountry = origin_country_text.get().strip().replace('(', '').replace(')', '')
+                OriginCountry = review.xpath('.//h3[@class="text_sub_header userStatusWrapper"]/text()')\
+                    .re(r'\((.*?)\)')[0].strip()
             except:
                 OriginCountry = ''
 
@@ -62,7 +63,7 @@ class AirlineReviewCrawler(scrapy.Spider):
             # Aircraft
             try:
                 aircraft_text = review.xpath('.//td[@class="review-rating-header aircraft "]/../td[2]/text()').extract_first()
-                Aircraft = aircraft_text.replace(',', "")
+                Aircraft = aircraft_text.replace(',', " ")
             except:
                 Aircraft = ''
 
@@ -149,13 +150,26 @@ class AirlineReviewCrawler(scrapy.Spider):
 
             # Review
             try:
-                review_text = review.xpath('.//div[@class="text_content "]/text()').extract()
-                if review_text:
-                    # Check if the review starts with the ✅ emoji
-                    if review_text[0].startswith('✅'):
-                        Review = review_text[1].replace('&nbsp;&nbsp;', '').strip().split('| ')[1].strip().replace(';', '').replace('\r\n', ' ')
+                # Get the year which review was published (Verified reviews was introduced in the beginning of 2017.
+                # Reviews before then have to be scraped with a different path)
+                year_pub = DatePub[-4:]
+                year_pub = datetime.datetime.strptime(year_pub, '%Y').year
+                if year_pub > 2016:
+                    review_text = review.xpath('.//div[@class="text_content "]/text()').extract()
+                    if review_text:
+                        # Check if the review starts with the ✅ emoji
+                        if review_text[0].startswith('✅'):
+                            Review = review_text[1].replace('&nbsp;&nbsp;', '').strip().split('| ')[1].strip().replace(';', '').replace('\r\n', ' ')
+                        else:
+                            Review = review_text[0].replace('&nbsp;&nbsp;', '').strip().split('| ')[1].strip().replace(';', '').replace('\r\n', ' ')
                     else:
-                        Review = review_text[0].replace('&nbsp;&nbsp;', '').strip().split('| ')[1].strip().replace(';', '').replace('\r\n', ' ')
+                        Review = ''
+                elif year_pub <= 2016:
+                    review_text = review.xpath('.//div[@class="text_content "]/text()').extract()
+                    if review_text:
+                        Review = review_text
+                    else:
+                        ''
                 else:
                     Review = ''
             except:
